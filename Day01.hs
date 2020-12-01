@@ -1,42 +1,19 @@
-{-# LANGUAGE TupleSections #-}
 module Day01 where
 
-import Data.List (nubBy, sort)
-import Control.Monad (guard)
-
 findEq2 :: Int -> [Int] -> [(Int, Int)]
-findEq2 n xs = go sorted (reverse sorted)
- where
-  sorted = sort xs
-  
-  go [] _  = []
-  go _  [] = []
-  go (x:xs) (y:ys)
-    | x == y = [] -- end
-    | x + y == n = (x,y) : go xs ys
-    | x + y > n = go (x:xs) ys -- try smaller
-    | x + y < n = go xs (y:ys) -- try bigger
-
--- TODO triples produces O(n^3) output .. not going to work
+findEq2 n = filter (\(a,b) -> a+b == n) . tuples
 
 findEq3 :: Int -> [Int] -> [(Int, Int, Int)]
-findEq3 n xs = do
-  filter ((==n) . sum3) . nubBy (\a b -> sum3 a == sum3 b) $ triples xs
+findEq3 n = filter (\(a,b,c) -> a+b+c == n) . triples
 
-sum3 :: Num a => (a,a,a) -> a
-sum3 (a,b,c) = a + b + c
+tuples [] = []
+tuples (x:xs) =
+  [(x,y) | y <- xs] <> tuples xs
 
-tuples xs = do
-  a <- xs
-  b <- xs
-  guard $ a /= b
-  pure (a,b)
-
-triples xs = do
-  (a,b) <- tuples xs
-  c <- xs
-  guard $ c /= a && c /= b
-  pure (a,b,c)
+triples :: [a] -> [(a,a,a)]
+triples [] = []
+triples (x:xs) =
+  [(x,y,z) | (y,z) <- tuples xs] <> triples xs
   
 main :: IO ()
 main = do
@@ -47,9 +24,10 @@ main = do
   --             , 675
   --             , 1456
   --             ]
-  -- part one
+  putStrLn "part one"
   input <- map read . lines <$> readFile "input"
   let [(x,y)] = findEq2 2020 input
   print $ x*y
-  -- part two
-  print $ findEq3 2020 input
+  putStrLn "part two"
+  let [(x,y,z)] = findEq3 2020 input
+  print $ x*y*z
