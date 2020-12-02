@@ -5,7 +5,10 @@
 
 with pkgs;
 let
-  ghc = pkgs.haskell.compiler.${compiler};
+  ghc = pkgs.haskell.packages.${compiler}.ghcWithPackages (ps: [
+    ps.extra
+    ps.safe
+  ]);
   hls = pkgs.haskell-language-server.override
     { supportedGhcVersions = [ compilerVersion ]; };
 in

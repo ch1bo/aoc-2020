@@ -1,4 +1,4 @@
-module Day01 where
+module Main where
 
 findEq2 :: Int -> [Int] -> [(Int, Int)]
 findEq2 n = filter (\(a,b) -> a+b == n) . tuples
