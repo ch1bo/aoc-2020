@@ -35,7 +35,7 @@ part2 input =
 main :: IO ()
 main = do
   input <- readFile "input"
-  putStrLn "part one"
-  putStrLn $ part1 input
-  putStrLn "part two"
-  putStrLn $ part2 input
+  putStrLn "Part one"
+  putStrLn $ "> " <> part1 input
+  putStrLn "Part two"
+  putStrLn $ "> " <> part2 input
