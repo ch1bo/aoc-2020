@@ -1,21 +1,41 @@
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 module Main where
 
-import qualified Data.Set        as Set
 import Text.Parsec.String (Parser)
 import Text.Parsec.Char
 import Text.Parsec
 import qualified Data.Map as Map
-import Control.Monad (void)
-import Data.Char (isAlphaNum, isSymbol)
-import Debug.Trace (trace)
 import Data.Map ((!?))
 import Data.Maybe (catMaybes)
+import Data.Char (isAlphaNum)
+import GHC.TypeLits (natVal, Nat, KnownNat)
+import Data.Proxy (Proxy(..))
+
+newtype Range (l :: Nat) (h :: Nat) = Range { unsafeRange :: Integer }
+                                    deriving Show
+
+parseRange :: (KnownNat l, KnownNat h) => proxy l -> proxy h -> String -> Maybe (Range l h)
+parseRange l h s
+  | i >= natVal l && i <= natVal h = Just (Range i)
+  | otherwise = Nothing
+ where
+  i = read s -- REVIEW use a proper parser here as well?
+
+data Height
+  = Metric (Range 150 193) -- ^ cm
+  | Imperial (Range 59 76) -- ^ in
+  deriving Show
+
+parseHeight :: String -> Maybe Height
+parseHeight _ = Nothing
 
 data Passport = Passport
-  { byr :: String
-  , iyr :: String
-  , eyr :: String
-  , hgt :: String
+  { byr :: Range 1920 2002
+  , iyr :: Range 2010 2020
+  , eyr :: Range 2020 2030
+  , hgt :: Height
   , hcl :: String
   , ecl :: String
   , pid :: String
@@ -26,10 +46,10 @@ passport :: Parser (Maybe Passport)
 passport = do
   fs <- Map.fromList <$> field `sepBy` char ' '
   pure $ Passport
-    <$> fs !? "byr"
-    <*> fs !? "iyr"
-    <*> fs !? "eyr"
-    <*> fs !? "hgt"
+    <$> (fs !? "byr" >>= parseRange (Proxy @1920) (Proxy @2002))
+    <*> (fs !? "iyr" >>= parseRange (Proxy @2010) (Proxy @2020))
+    <*> (fs !? "eyr" >>= parseRange (Proxy @2020) (Proxy @2030))
+    <*> (fs !? "hgt" >>= parseHeight)
     <*> fs !? "hcl"
     <*> fs !? "ecl"
     <*> fs !? "pid"
@@ -55,7 +75,7 @@ part1 input = do
   inline [] = []
 
 part2 :: String -> String
-part2 input = input
+part2 = part1
 
 main :: IO ()
 main = do
@@ -75,5 +95,5 @@ main = do
   -- input <- readFile "input"
   putStrLn "part one"
   putStrLn $ part1 input
-  -- putStrLn "part two"
-  -- putStrLn $ part2 input
+  putStrLn "part two"
+  putStrLn $ part2 input
