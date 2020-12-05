@@ -8,6 +8,7 @@ let
   ghc = pkgs.haskell.packages.${compiler}.ghcWithPackages (ps: [
     ps.extra
     ps.safe
+    ps.attoparsec
   ]);
   hls = pkgs.haskell-language-server.override
     { supportedGhcVersions = [ compilerVersion ]; };
