@@ -1,15 +1,24 @@
 module Main where
 
-part1 :: String -> String
-part1 = id
+import Text.Printf (printf)
 
-part2 :: String -> String
-part2 = id
+type Input = String
+
+parseInput :: String -> Input
+parseInput = id
+
+part1 :: Input -> Int
+part1 = error "not implemented"
+
+part2 :: Input -> Int
+part2 = error "not implemented"
 
 main :: IO ()
-main = do
-  input <- readFile "input"
-  putStrLn "Part one"
-  putStrLn $ "> " <> part1 input
-  putStrLn "Part two"
-  putStrLn $ "> " <> part2 input
+main = go "test" >> go "input"
+  where
+    go fn = do
+    testInput <- parseInput <$> readFile fn
+    printf "Part one (%s):\n" fn
+    print $ part1 testInput
+    printf "Part two (%s):\n" fn
+    print $ part2 testInput
