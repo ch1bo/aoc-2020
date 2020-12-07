@@ -17,8 +17,5 @@ pkgs.mkShell rec {
   buildInputs = [
     ghc
     hls
-    # pkgs.cabal-install
-    # pkgs.stylish-haskell
-    pkgs.haskell.packages.${compiler}.brittany
   ];
 }
