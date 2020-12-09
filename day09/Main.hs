@@ -9,44 +9,38 @@ type Input = [Integer]
 parseInput :: String -> Input
 parseInput = map read . lines
 
-validate :: [Integer] -> Integer -> Bool
-validate q z = or [ x + y == z | y <- q, x <- q, x /= y ]
+isValid :: [Integer] -> Integer -> Bool
+isValid q z = or [ x + y == z | y <- q, x <- q, x /= y ]
 
-findInvalid :: Int -> Input -> Maybe Integer
-findInvalid window input = go prelude xs
- where
-  prelude = take window input
-
-  xs = drop window input
-
-  go _ [] = Nothing
-  go q (x : xs)
-    | not (validate q x) = Just x
-    | otherwise = go (shift q x) xs
-
-  shift xs x = tail xs <> [x]
+findInvalid :: [Integer] -> [Integer] -> Maybe Integer
+findInvalid prelude = \case
+  [] -> Nothing
+  (x : xs)
+    | not (isValid prelude x) -> Just x
+    | otherwise -> findInvalid (tail prelude <> [x]) xs
 
 findSum :: Integer -> [Integer] -> [Integer]
-findSum _ [] = []
-findSum s (x : xs) = case go 0 [] (x : xs) of
-  [] -> findSum s xs
-  as -> reverse as
+findSum s xs = go [] xs
  where
-  go _ _ [] = []
-  go acc as (x : xs)
-    | acc == s     = as
-    | acc + x <= s = go (acc + x) (x : as) xs
-    | otherwise    = []
+  go _ [] = []
+  go as (x : xs)
+    | sum as == s = as
+    | sum as < s  = go (x : as) xs
+    | sum as > s  = go (init as) (x : xs)
+    | otherwise   = []
 
 part1 :: Int -> Input -> String
-part1 window input = show $ findInvalid window input
+part1 window input = show $ findInvalid prelude xs
+  where (prelude, xs) = splitAt window input
 
 part2 :: Int -> Input -> String
-part2 window input = case findInvalid window input of
-  Nothing -> error "nothing invalid"
-  Just x  -> case findSum x input of
-    [] -> error "no sequence found"
-    xs -> show $ minimum xs + maximum xs
+part2 window input = show $ minimum xs + maximum xs
+ where
+  (prelude, rest) = splitAt window input
+
+  (Just x) = findInvalid prelude rest
+
+  xs = findSum x input
 
 main :: IO ()
 main = do
