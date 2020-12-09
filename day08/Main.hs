@@ -69,7 +69,7 @@ part1 = show . runProgram
 
 -- REVIEW quite redundant -> refactor?
 permuteNopJmp :: Program -> [Program]
-permuteNopJmp [] = []
+permuteNopJmp []  = []
 permuteNopJmp [i] = case i of
   Nop x -> [[Nop x], [Jmp x]]
   Acc _ -> [[i]]
