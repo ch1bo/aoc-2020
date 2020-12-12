@@ -3,14 +3,26 @@
 module Main where
 
 import System.IO.Unsafe (unsafePerformIO)
+import Numeric.Natural
+import Data.List (sort)
 
-type Input = String
+type Input = [Natural]
 
 parseInput :: String -> Input
-parseInput = id
+parseInput = map read . lines
+
+-- | Calculate 1-jolt and 3-jolt differences
+diff13 :: Input -> (Natural, Natural)
+diff13 input =
+  let (_, d1, d3) = foldr go (0, 0, 0) . reverse $ sort input in (d1, d3)
+ where
+  go n (old, diff1, diff3)
+    | n - old == 1 = (n, diff1 + 1, diff3)
+    | n - old == 3 = (n, diff1, diff3 + 1)
+    | otherwise    = (n, diff1, diff3)
 
 part1 :: Input -> String
-part1 = undefined
+part1 input = let (d1, d3) = diff13 input in show (d1 * (d3 + 1))
 
 part2 :: Input -> String
 part2 = undefined
