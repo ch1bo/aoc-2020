@@ -6,10 +6,12 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (Read(..), get)
 import Control.Applicative (Alternative(many))
 import Data.Monoid (getSum, Sum(Sum))
+import Data.Vector ((!), Vector)
+import qualified Data.Vector as V
 
 type Input = GameOfLife
 
-type GameOfLife = [[Cell]]
+type GameOfLife = Vector (Vector Cell)
 
 data Cell = Empty | Occupied | Floor
           deriving Eq
@@ -30,10 +32,10 @@ instance Read Cell where
   readListPrec = many readPrec
 
 parseInput :: String -> Input
-parseInput = map read . lines
+parseInput = V.fromList . map (V.fromList . read) . lines
 
 step :: GameOfLife -> GameOfLife
-step g = zipWith (\row -> zipWith (go row) [0 ..]) [0 ..] g
+step g = V.imap (V.imap . go) g
  where
   go row col Empty | occupied row col == 0 = Occupied
   go row col Occupied | occupied row col >= 4 = Empty
@@ -49,8 +51,8 @@ step g = zipWith (\row -> zipWith (go row) [0 ..]) [0 ..] g
       + occ (r + 1) c
       + occ (r + 1) (c + 1)
 
-  occ r c | r >= 0 && r < length g && c >= 0 && c < length (g !! r) =
-    case (g !! r) !! c of
+  occ r c | r >= 0 && r < length g && c >= 0 && c < length (g ! r) =
+    case (g ! r) ! c of
       Occupied -> 1
       _ -> 0
   occ _ _ = 0
