@@ -11,21 +11,27 @@ type Input = [Natural]
 parseInput :: String -> Input
 parseInput = map read . lines
 
--- | Calculate 1-jolt and 3-jolt differences
-diff13 :: Input -> (Natural, Natural)
-diff13 input =
-  let (_, d1, d3) = foldr go (0, 0, 0) . reverse $ sort input in (d1, d3)
+-- | Calculate differences
+diffs :: [Natural] -> [Natural]
+diffs = go 0
  where
-  go n (old, diff1, diff3)
-    | n - old == 1 = (n, diff1 + 1, diff3)
-    | n - old == 3 = (n, diff1, diff3 + 1)
-    | otherwise    = (n, diff1, diff3)
+  go _    [] = []
+  go prev (x : xs) = (x - prev) : go x xs
 
 part1 :: Input -> String
-part1 input = let (d1, d3) = diff13 input in show (d1 * (d3 + 1))
+part1 input =
+  let d = diffs (sort input) <> [3]
+  in show (count 1 d, count 3 d, count 1 d * count 3 d)
+  where count n = length . filter (== n)
 
 part2 :: Input -> String
-part2 = undefined
+part2 input = show . go $ diffs $ sort input
+ where
+  go (1 : 1 : 1 : 1 : xs) = 7 * go xs
+  go (1 : 1 : 1 : xs) = 4 * go xs
+  go (1 : 1 : xs) = 2 * go xs
+  go (_ : xs) = go xs
+  go [] = 1
 
 main :: IO ()
 main = do
