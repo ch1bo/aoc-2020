@@ -6,7 +6,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (Read(..), get)
 import Control.Applicative (Alternative(many))
 import Data.Monoid (getSum, Sum(Sum))
-import Data.Vector ((!), Vector)
+import Data.Vector ((!?), (!), Vector)
 import qualified Data.Vector as V
 
 type Input = GameOfLife
@@ -34,6 +34,27 @@ instance Read Cell where
 parseInput :: String -> Input
 parseInput = V.fromList . map (V.fromList . read) . lines
 
+data Direction = TL | T | TR | L | R | BL | B | BR
+
+allDirections :: [Direction]
+allDirections = [TL, T, TR, L, R, BL, B, BR]
+
+data Pos = Pos { y :: !Int, x :: !Int }
+
+getCell :: Pos -> GameOfLife -> Maybe Cell
+getCell p g = (g !? y p) >>= (!? x p)
+
+shift :: Pos -> Direction -> Pos
+shift (Pos y x) = \case
+  TL -> Pos (y - 1) (x - 1)
+  T  -> Pos (y - 1) x
+  TR -> Pos (y - 1) (x + 1)
+  L  -> Pos y (x - 1)
+  R  -> Pos y (x + 1)
+  BL -> Pos (y + 1) (x - 1)
+  B  -> Pos (y + 1) x
+  BR -> Pos (y + 1) (x + 1)
+
 step :: GameOfLife -> GameOfLife
 step g = V.imap (V.imap . go) g
  where
@@ -41,36 +62,46 @@ step g = V.imap (V.imap . go) g
   go row col Occupied | occupied row col >= 4 = Empty
   go _ _ x = x
 
-  occupied r c =
-    occ (r - 1) (c - 1)
-      + occ (r - 1) c
-      + occ (r - 1) (c + 1)
-      + occ r (c - 1)
-      + occ r (c + 1)
-      + occ (r + 1) (c - 1)
-      + occ (r + 1) c
-      + occ (r + 1) (c + 1)
+  occupied r c = sum $ map (occ . shift (Pos r c)) allDirections
 
-  occ r c | r >= 0 && r < length g && c >= 0 && c < length (g ! r) =
-    case (g ! r) ! c of
-      Occupied -> 1
-      _ -> 0
-  occ _ _ = 0
+  occ p = case getCell p g of
+    Just Occupied -> 1
+    _ -> 0
 
-stepWhileChange :: GameOfLife -> GameOfLife
-stepWhileChange g =
-  let g' = step g in if g /= g' then stepWhileChange g' else g'
+repeatUntilEq :: Eq a => (a -> a) -> a -> a
+repeatUntilEq f a = let a' = f a in if a /= a' then repeatUntilEq f a' else a'
 
-part1 :: Input -> String
-part1 = show . count . stepWhileChange
+countOccupied :: GameOfLife -> Int
+countOccupied = getSum . foldMap (foldMap occ)
  where
-  count = getSum . foldMap (foldMap occ)
-
   occ Occupied = Sum 1
   occ _ = Sum 0
 
+part1 :: Input -> String
+part1 = show . countOccupied . repeatUntilEq step
+
+-- | Look for an occupied seat in direction
+look :: Pos -> GameOfLife -> Direction -> Bool
+look p g dir = case getCell (shift p dir) g of
+  Just Occupied -> True
+  Just Empty -> False
+  Just Floor -> look (shift p dir) g dir
+  Nothing -> False
+
+-- | Look and count occupied seats around
+lookAround :: Pos -> GameOfLife -> Int
+lookAround p g =
+  getSum $ foldMap (\dir -> if look p g dir then Sum 1 else Sum 0) allDirections
+
+step2 :: GameOfLife -> GameOfLife
+step2 g = V.imap (V.imap . go) g
+ where
+  go row col Empty | lookAround (Pos row col) g == 0 = Occupied
+  go row col Occupied | lookAround (Pos row col) g >= 5 = Empty
+  go _ _ x = x
+
 part2 :: Input -> String
-part2 = undefined
+part2 = show . countOccupied . repeatUntilEq step2
 
 main :: IO ()
 main = do
@@ -78,10 +109,10 @@ main = do
   putStrLn $ part1 test
   putStrLn "Part one (input):"
   putStrLn $ part1 input
-  -- putStrLn "Part two (test):"
-  -- putStrLn $ part2 test
-  -- putStrLn "Part two (input):"
-  -- putStrLn $ part2 input
+  putStrLn "Part two (test):"
+  putStrLn $ part2 test
+  putStrLn "Part two (input):"
+  putStrLn $ part2 input
 
 test :: Input
 test = unsafePerformIO $ parseInput <$> readFile "test"
