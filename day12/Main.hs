@@ -3,8 +3,9 @@
 module Main where
 
 import System.IO.Unsafe (unsafePerformIO)
-import Text.Read
-import Control.Monad.State.Strict (modify, execState)
+import Text.Read (readPrec, get)
+import Control.Monad.State (gets, modify, execState)
+import Data.Tuple.Extra (first3, second3, third3, fst3)
 
 type Input = [Action]
 
@@ -27,44 +28,37 @@ data Direction = N | S | E | W
 parseInput :: String -> Input
 parseInput = map read . lines
 
-turnR :: Direction -> Int -> Direction
-turnR N 90 = E
-turnR E 90 = S
-turnR S 90 = W
-turnR W 90 = N
-turnR d deg
-  | deg > 90 = turnR (turnR d 90) (deg - 90)
-  | deg < 0  = error "turnR negative"
-
-turnL :: Direction -> Int -> Direction
-turnL N 90 = W
-turnL W 90 = S
-turnL S 90 = E
-turnL E 90 = N
-turnL d deg
-  | deg > 90 = turnL (turnL d 90) (deg - 90)
-  | deg < 0  = error "turnL negative"
+turn :: Int -> Direction -> Direction
+turn deg d
+  | deg > 90 = turn (deg - 90) $ turn 90 d
+  | deg < 0 = turn (360 + deg) d
+  | otherwise = case d of
+    N -> E
+    E -> S
+    S -> W
+    W -> N
 
 interpret :: [Action] -> (Direction, Int, Int)
 interpret as = execState (mapM go as) (E, 0, 0)
  where
   go = \case
-    Move N x -> modify (north x)
-    Move S x -> modify (north (-x))
-    Move E x -> modify (east x)
-    Move W x -> modify (east (-x))
-    L x -> modify (\(d, n, e) -> (turnL d x, n, e))
-    R x -> modify (\(d, n, e) -> (turnR d x, n, e))
-    F x -> modify (move x)
+    Move N x -> north x
+    Move S x -> north (-x)
+    Move E x -> east x
+    Move W x -> east (-x)
+    L x -> turn' (-x)
+    R x -> turn' x
+    F x -> gets fst3 >>= \case
+      N -> north x
+      E -> east x
+      S -> north (-x)
+      W -> east (-x)
 
-  north delta (f, n, e) = (f, n + delta, e)
+  turn' delta = modify (first3 $ turn delta)
 
-  east delta (f, n, e) = (f, n, e + delta)
+  north delta = modify (second3 (+ delta))
 
-  move delta (N, n, e) = (N, n + delta, e)
-  move delta (E, n, e) = (E, n, e + delta)
-  move delta (S, n, e) = (S, n - delta, e)
-  move delta (W, n, e) = (W, n, e - delta)
+  east delta = modify (third3 (+ delta))
 
 distance :: (Direction, Int, Int) -> Int
 distance (_, n, e) = fromIntegral (abs n) + fromIntegral (abs e)
