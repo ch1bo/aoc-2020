@@ -10,6 +10,7 @@ let
     ps.safe
     ps.attoparsec
     ps.vector
+    ps.megaparsec
   ]);
   hls = pkgs.haskell-language-server.override
     { supportedGhcVersions = [ compilerVersion ]; };
