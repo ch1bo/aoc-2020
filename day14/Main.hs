@@ -9,10 +9,9 @@ import Text.Megaparsec.Char
 import Data.Void (Void)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Control.Monad.State (modify, execState)
-import Data.Tuple.Extra (first, second)
+import Control.Monad.State (forM_, gets, modify, execState)
 import Data.Bits
-import Debug.Trace (trace)
+import Data.Tuple.Extra (first, second)
 
 type Input = [Statement]
 
@@ -20,7 +19,7 @@ data MaskedBit = BitX | Bit1 | Bit0
                deriving Show
 
 data Statement = Mask [MaskedBit]
-               | Mem Word Natural
+               | Mem Natural Natural
                deriving Show
 
 parseInput :: String -> Input
@@ -44,18 +43,8 @@ parseInput = either (error . show) id . parse statements ""
 
   decimal = some digitChar <* space
 
-type Memory = Map Word Natural
-
-execute :: Input -> Memory
-execute ss = fst $ execState (mapM_ go ss) (Map.empty, replicate 36 BitX)
- where
-  go = \case
-    Mask bits -> modify . second $ const bits
-    Mem idx val ->
-      modify $ \(mem, mask) -> (Map.insert idx (applyMask mask val) mem, mask)
-
-applyMask :: [MaskedBit] -> Natural -> Natural
-applyMask mask n = foldr apply n
+maskValue :: [MaskedBit] -> Natural -> Natural
+maskValue mask n = foldr apply n
   $ zip mask [(length mask - 1), (length mask - 2) .. 0]
  where
   apply (b, i) n = case b of
@@ -63,11 +52,42 @@ applyMask mask n = foldr apply n
     Bit1 -> n `setBit` i
     Bit0 -> n `clearBit` i
 
+type Memory = Map Natural Natural
+
+execute :: Input -> Memory
+execute ss = fst $ execState (mapM_ go ss) (Map.empty, replicate 36 BitX)
+ where
+  go = \case
+    Mask bits -> modify . second $ const bits
+    Mem idx val ->
+      modify $ \(mem, mask) -> (Map.insert idx (maskValue mask val) mem, mask)
+
 part1 :: Input -> String
 part1 = show . sum . Map.elems . execute
 
+-- | Mask and expand addresses considering floating bits.
+maskAddress :: [MaskedBit] -> Natural -> [Natural]
+maskAddress mask a = apply a
+  $ zip mask [(length mask - 1), (length mask - 2) .. 0]
+ where
+  apply a [] = [a]
+  apply a ((b, i) : bs) = case b of
+    BitX -> apply (a `clearBit` i) bs <> apply (a `setBit` i) bs
+    Bit0 -> apply a bs
+    Bit1 -> apply (a `setBit` i) bs
+
+execute2 :: Input -> Memory
+execute2 ss = fst $ execState (mapM_ go ss) (Map.empty, replicate 36 BitX)
+ where
+  go = \case
+    Mask bits   -> modify . second $ const bits
+    Mem idx val -> do
+      mask <- gets snd
+      let as = maskAddress mask idx
+      forM_ as $ \a -> modify $ first (Map.insert a val)
+
 part2 :: Input -> String
-part2 = undefined
+part2 = show . sum . Map.elems . execute2
 
 main :: IO ()
 main = do
@@ -75,10 +95,10 @@ main = do
   putStrLn $ part1 test
   putStrLn "Part one (input):"
   putStrLn $ part1 input
-  -- putStrLn "Part two (test):"
-  -- putStrLn $ part2 test
-  -- putStrLn "Part two (input):"
-  -- putStrLn $ part2 input
+  putStrLn "Part two (test):"
+  putStrLn $ part2 test
+  putStrLn "Part two (input):"
+  putStrLn $ part2 input
 
 test :: Input
 test = unsafePerformIO $ parseInput <$> readFile "test"
