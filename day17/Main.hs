@@ -1,3 +1,7 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE ConstrainedClassMethods #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 module Main where
@@ -5,10 +9,14 @@ module Main where
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (Read(..), get)
 import Control.Applicative (many, Alternative(empty))
-import Safe (atDef)
-import Control.Monad (guard)
-import Data.Foldable (Foldable(fold))
 import Data.Monoid (getSum, Sum(Sum))
+import Data.Set (Set)
+import Data.Maybe (catMaybes)
+import qualified Data.Set as Set
+import Data.Foldable (Foldable(fold))
+import Control.Monad (guard)
+
+-- * Generic
 
 data Cube = Active | Inactive
           deriving Eq
@@ -27,115 +35,193 @@ instance Read Cube where
 
   readListPrec = many readPrec
 
-newtype Dimension = D [[[Cube]]]
+class HasX a where
+  getX :: a -> Int
 
-instance Show Dimension where
-  show = prettyDimension
+class HasY a where
+  getY :: a -> Int
 
-size :: Dimension -> Pos
-size (D d) =
-  let
-    zlen = length d
-    ylen = length (d !: 0)
-    xlen = length (d !: 0 !: 0)
-  in P xlen ylen zlen
+class HasZ a where
+  getZ :: a -> Int
 
-prettyDimension :: Dimension -> String
-prettyDimension (D d3) = unlines $ zipWith prettyZ d3 [0 ..]
-  where prettyZ d2 z = "z=" ++ show z ++ "\n" ++ unlines (map show d2)
+class Dimension d where
+  type Pos d
 
-type Input = Dimension
+  mkDimension :: [Pos d] -> d
 
-data Pos = P Int {- x -} Int {- y -} Int {- z-}
-  deriving Show
+  active :: d -> Set (Pos d)
 
--- | Lookup with an inactive 'Cube' ('.') as default if out of bounds.
-(!.) :: [Cube] -> Int -> Cube
-(!.) = atDef Inactive
+  neighbors :: d -> Pos d -> [Pos d]
 
--- | Lookup with an empty list '[]' as default.
-(!:) :: [[a]] -> Int -> [a]
-(!:) = atDef []
+  foldDimension :: Monoid m => (Pos d -> m) -> d -> m
 
-neighbors :: Dimension -> Pos -> [Cube]
-neighbors (D d) (P x y z) = do
-  xn <- [x, x + 1, x - 1]
-  yn <- [y, y + 1, y - 1]
-  zn <- [z, z + 1, z - 1]
-  guard ((xn, yn, zn) /= (x, y, z))
-  pure $ d !: zn !: yn !. xn
+pos :: (Ord (Pos d), Dimension d) => d -> Pos d -> Cube
+pos d p | p `Set.member` active d = Active
+pos _ _ = Inactive
 
--- | Grow dimension by 1 in all directions with inactive cubes.
-grow :: Dimension -> Dimension
-grow d@(D d3) = D $ growZ d3
+forX :: (HasX (Pos d), Dimension d) => d -> (Int -> a) -> [a]
+forX = forRangeOn getX
+
+forY :: (HasY (Pos d), Dimension d) => d -> (Int -> a) -> [a]
+forY = forRangeOn getY
+
+forZ :: (HasZ (Pos d), Dimension d) => d -> (Int -> a) -> [a]
+forZ = forRangeOn getZ
+
+-- | Range from minimum - 1 to maximum + 1 of active cubes in dimension d.
+forRangeOn :: Dimension d => (Pos d -> Int) -> d -> (Int -> a) -> [a]
+forRangeOn f d g = map g [low - 1, low .. high + 1]
  where
-  growX xs = Inactive : xs ++ [Inactive]
+  low  = minimum . Set.map f $ active d
+  high = maximum . Set.map f $ active d
 
-  growY ys = emptyRow : map growX ys ++ [emptyRow]
-
-  growZ zs = emptyPlane : map growY zs ++ [emptyPlane]
-
-  emptyRow   = replicate (xlen + 2) Inactive
-
-  emptyPlane = replicate (ylen + 2) emptyRow
-
-  (P xlen ylen _) = size d
-
--- | Shrink dimension as much as possible (depending on active cubes).
-shrink :: Dimension -> Dimension
-shrink d@(D d3)
-  | all (Inactive ==) (margin d) = D $ map (map pop . pop) $ pop d3
-  | otherwise = D d3
-  where pop = tail . init
-
-margin (D d3) =
-  concat (head d3) -- z head
-    ++ concat (last d3) -- z last
-    ++ concatMap head d3 -- y head
-    ++ concatMap last d3 -- y last
-    ++ concatMap (map head) d3 -- x head
-    ++ concatMap (map last) d3 -- x last
+activeNeighbors :: (Ord (Pos d), Dimension d) => d -> Pos d -> Int
+activeNeighbors d p = length $ filter (Active ==) $ map (pos d) $ neighbors d p
 
 -- | A single activation cycle.
-cycleDimension :: Dimension -> Dimension
-cycleDimension = shrink . traverseDimension go . grow
+cycleDimension :: (Ord (Pos d), Dimension d) => d -> d
+cycleDimension d = mkDimension $ foldDimension go d
  where
-  go d p Active | activeNeighbors d p == 2 || activeNeighbors d p == 3 = Active
-  go d p Inactive | activeNeighbors d p == 3 = Active
-  go _ _ _ = Inactive
+  go p = case pos d p of
+    Active | activeNeighbors d p == 2 || activeNeighbors d p == 3 -> pure p
+    Inactive | activeNeighbors d p == 3 -> pure p
+    _ -> mempty
 
-  activeNeighbors d p = length $ filter (Active ==) $ neighbors d p
-
-traverseDimension
-  :: (Dimension -> Pos -> Cube -> Cube) -> Dimension -> Dimension
-traverseDimension f d@(D d3) = D $ zipWith traversePlane [0 ..] d3
+countActive :: (Ord (Pos d), Dimension d) => d -> Int
+countActive d = getSum $ foldDimension (go . pos d) d
  where
-  traversePlane z d2 = zipWith (traverseRow z) [0 ..] d2
+  go Active   = Sum 1
+  go Inactive = Sum 0
 
-  traverseRow z y xs = zipWith (\x c -> f d (P x y z) c) [0 ..] xs
+-- * two dimensional
 
-foldMapDimension
-  :: Monoid m => (Dimension -> Pos -> Cube -> m) -> Dimension -> m
-foldMapDimension f d@(D d3) = fold $ zipWith foldPlane [0 ..] d3
- where
-  foldPlane z d2 = fold $ zipWith (foldRow z) [0 ..] d2
+type Vec2 = (Int, Int)
 
-  foldRow z y xs = fold $ zipWith (\x c -> f d (P x y z) c) [0 ..] xs
+instance HasX Vec2 where
+  getX = fst
+
+instance HasY Vec2 where
+  getY = snd
+
+newtype Dimension2 = D2 (Set Vec2)
+
+instance Show Dimension2 where
+  show d = unlines $ forY d prettyY
+    where prettyY y = show $ forX d $ \x -> pos d (x, y)
+
+instance Dimension Dimension2 where
+  type Pos Dimension2 = Vec2
+
+  mkDimension = D2 . Set.fromList
+
+  active (D2 s) = s
+
+  neighbors _ (x, y) = do
+    xn <- [x, x + 1, x - 1]
+    yn <- [y, y + 1, y - 1]
+    guard ((xn, yn) /= (x, y))
+    pure (xn, yn)
+
+  foldDimension f d = fold . forY d $ \y -> fold . forX d $ \x -> f (x, y)
+
+embed2 :: Dimension2 -> Dimension3
+embed2 (D2 d2) = D3 $ Set.map v2to3 d2 where v2to3 (x, y) = (x, y, 0)
+
+-- * three dimensional
+
+type Vec3 = (Int, Int, Int)
+
+instance HasX Vec3 where
+  getX (x, _, _) = x
+
+instance HasY Vec3 where
+  getY (_, y, _) = y
+
+instance HasZ Vec3 where
+  getZ (_, _, z) = z
+
+newtype Dimension3 = D3 { active3 :: Set Vec3 }
+
+instance Show Dimension3 where
+  show d = concat $ forZ d prettyZ
+   where
+    prettyZ z = "z=" ++ show z ++ "\n" ++ unlines (forY d $ prettyY z)
+
+    prettyY z y = show $ forX d $ \x -> pos d (x, y, z)
+
+instance Dimension Dimension3 where
+  type Pos Dimension3 = Vec3
+
+  mkDimension = D3 . Set.fromList
+
+  active (D3 s) = s
+
+  neighbors _ (x, y, z) = do
+    xn <- [x, x + 1, x - 1]
+    yn <- [y, y + 1, y - 1]
+    zn <- [z, z + 1, z - 1]
+    guard ((xn, yn, zn) /= (x, y, z))
+    pure (xn, yn, zn)
+
+  foldDimension f d = fold . forZ d $ \z ->
+    fold . forY d $ \y -> fold . forX d $ \x -> f (x, y, z)
+
+-- * four dimensional
+
+type Vec4 = (Int, Int, Int, Int)
+
+instance HasX Vec4 where
+  getX (x, _, _, _) = x
+
+instance HasY Vec4 where
+  getY (_, y, _, _) = y
+
+instance HasZ Vec4 where
+  getZ (_, _, z, _) = z
+
+newtype Dimension4 = D4 (Set Vec4)
+
+instance Dimension Dimension4 where
+  type Pos Dimension4 = Vec4
+
+  -- TODO remove?
+  mkDimension = D4 . Set.fromList
+
+  active (D4 s) = s
+
+  neighbors _ (x, y, z, w) = do
+    xn <- [x, x + 1, x - 1]
+    yn <- [y, y + 1, y - 1]
+    zn <- [z, z + 1, z - 1]
+    wn <- [w, w + 1, w - 1]
+    guard ((xn, yn, zn, wn) /= (x, y, z, w))
+    pure (xn, yn, zn, wn)
+
+  foldDimension f d = fold . forRangeOn (\(_x, _y, _z, w) -> w) d $ \w ->
+    fold . forZ d $ \z ->
+      fold . forY d $ \y -> fold . forX d $ \x -> f (x, y, z, w)
+
+embed3 :: Dimension3 -> Dimension4
+embed3 (D3 d3) = D4 $ Set.map v3to4 d3 where v3to4 (x, y, z) = (x, y, z, 0)
+
+type Input = Dimension2
 
 parseInput :: String -> Input
-parseInput = D . pure . map read . lines
-
-countActive :: Dimension -> Int
-countActive = getSum . foldMapDimension go
+parseInput s = mkDimension $ foldMap pure activeCubes
  where
-  go _ _ Active   = Sum 1
-  go _ _ Inactive = Sum 0
+  activeCubes = concat $ zipWith parseY [0 ..] $ lines s
+
+  parseY y = catMaybes . zipWith (parseX y) [0 ..]
+
+  parseX y x '#' = Just (x, y)
+  parseX _ _ _   = Nothing
 
 part1 :: Input -> String
-part1 = show . (!! 6) . map countActive . iterate cycleDimension
+part1 = show . (!! 6) . map countActive . iterate cycleDimension . embed2
 
 part2 :: Input -> String
-part2 = undefined
+part2 =
+  show . (!! 6) . map countActive . iterate cycleDimension . embed3 . embed2
 
 main :: IO ()
 main = do
