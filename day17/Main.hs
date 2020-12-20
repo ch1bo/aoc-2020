@@ -15,6 +15,7 @@ import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import Data.Foldable (Foldable(fold))
 import Control.Monad (guard)
+import Data.Tuple.Extra (snd3, fst3, thd3)
 
 -- * Generic
 
@@ -35,15 +36,6 @@ instance Read Cube where
 
   readListPrec = many readPrec
 
-class HasX a where
-  getX :: a -> Int
-
-class HasY a where
-  getY :: a -> Int
-
-class HasZ a where
-  getZ :: a -> Int
-
 class Dimension d where
   type Pos d
 
@@ -56,15 +48,6 @@ class Dimension d where
 pos :: (Ord (Pos d), Dimension d) => d -> Pos d -> Cube
 pos d p | p `Set.member` active d = Active
 pos _ _ = Inactive
-
-forX :: (HasX (Pos d), Dimension d) => d -> (Int -> a) -> [a]
-forX = forRangeOn getX
-
-forY :: (HasY (Pos d), Dimension d) => d -> (Int -> a) -> [a]
-forY = forRangeOn getY
-
-forZ :: (HasZ (Pos d), Dimension d) => d -> (Int -> a) -> [a]
-forZ = forRangeOn getZ
 
 -- | Range from minimum - 1 to maximum + 1 of active cubes in dimension d.
 forRangeOn :: Dimension d => (Pos d -> Int) -> d -> (Int -> a) -> [a]
@@ -94,17 +77,16 @@ countActive = length . active
 
 type Vec2 = (Int, Int)
 
-instance HasX Vec2 where
-  getX = fst
-
-instance HasY Vec2 where
-  getY = snd
-
 newtype Dimension2 = D2 (Set Vec2)
 
 instance Show Dimension2 where
-  show d = unlines $ forY d prettyY
-    where prettyY y = show $ forX d $ \x -> pos d (x, y)
+  show d = unlines $ forY prettyY
+   where
+    prettyY y = show $ forX $ \x -> pos d (x, y)
+
+    forX = forRangeOn fst d
+
+    forY = forRangeOn snd d
 
 instance Dimension Dimension2 where
   type Pos Dimension2 = Vec2
@@ -126,23 +108,20 @@ embed2 (D2 d2) = D3 $ Set.map v2to3 d2 where v2to3 (x, y) = (x, y, 0)
 
 type Vec3 = (Int, Int, Int)
 
-instance HasX Vec3 where
-  getX (x, _, _) = x
-
-instance HasY Vec3 where
-  getY (_, y, _) = y
-
-instance HasZ Vec3 where
-  getZ (_, _, z) = z
-
 newtype Dimension3 = D3 { active3 :: Set Vec3 }
 
 instance Show Dimension3 where
-  show d = concat $ forZ d prettyZ
+  show d = concat $ forZ prettyZ
    where
-    prettyZ z = "z=" ++ show z ++ "\n" ++ unlines (forY d $ prettyY z)
+    prettyZ z = "z=" ++ show z ++ "\n" ++ unlines (forY $ prettyY z)
 
-    prettyY z y = show $ forX d $ \x -> pos d (x, y, z)
+    prettyY z y = show $ forX $ \x -> pos d (x, y, z)
+
+    forZ = forRangeOn thd3 d
+
+    forY = forRangeOn snd3 d
+
+    forX = forRangeOn fst3 d
 
 instance Dimension Dimension3 where
   type Pos Dimension3 = Vec3
@@ -161,15 +140,6 @@ instance Dimension Dimension3 where
 -- * four dimensional
 
 type Vec4 = (Int, Int, Int, Int)
-
-instance HasX Vec4 where
-  getX (x, _, _, _) = x
-
-instance HasY Vec4 where
-  getY (_, y, _, _) = y
-
-instance HasZ Vec4 where
-  getZ (_, _, z, _) = z
 
 newtype Dimension4 = D4 (Set Vec4)
 
@@ -194,7 +164,7 @@ embed3 (D3 d3) = D4 $ Set.map v3to4 d3 where v3to4 (x, y, z) = (x, y, z, 0)
 type Input = Dimension2
 
 parseInput :: String -> Input
-parseInput s = mkDimension $ foldMap mempty activeCubes
+parseInput s = mkDimension $ foldMap Set.singleton activeCubes
  where
   activeCubes = concat $ zipWith parseY [0 ..] $ lines s
 
@@ -204,11 +174,10 @@ parseInput s = mkDimension $ foldMap mempty activeCubes
   parseX _ _ _   = Nothing
 
 part1 :: Input -> String
-part1 = show . (!! 6) . map countActive . iterate cycleDimension . embed2
+part1 = show . countActive . (!! 6) . iterate cycleDimension . embed2
 
 part2 :: Input -> String
-part2 =
-  show . (!! 6) . map countActive . iterate cycleDimension . embed3 . embed2
+part2 = show . countActive . (!! 6) . iterate cycleDimension . embed3 . embed2
 
 main :: IO ()
 main = do
