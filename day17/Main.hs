@@ -47,13 +47,11 @@ class HasZ a where
 class Dimension d where
   type Pos d
 
-  mkDimension :: [Pos d] -> d
+  mkDimension :: Set (Pos d) -> d
 
   active :: d -> Set (Pos d)
 
-  neighbors :: d -> Pos d -> [Pos d]
-
-  foldDimension :: Monoid m => (Pos d -> m) -> d -> m
+  neighbors :: d -> Pos d -> Set (Pos d)
 
 pos :: (Ord (Pos d), Dimension d) => d -> Pos d -> Cube
 pos d p | p `Set.member` active d = Active
@@ -76,22 +74,21 @@ forRangeOn f d g = map g [low - 1, low .. high + 1]
   high = maximum . Set.map f $ active d
 
 activeNeighbors :: (Ord (Pos d), Dimension d) => d -> Pos d -> Int
-activeNeighbors d p = length $ filter (Active ==) $ map (pos d) $ neighbors d p
+activeNeighbors d p = length $ Set.intersection (active d) (neighbors d p)
 
 -- | A single activation cycle.
 cycleDimension :: (Ord (Pos d), Dimension d) => d -> d
-cycleDimension d = mkDimension $ foldDimension go d
+cycleDimension d = mkDimension . Set.filter go $ foldMap
+  (neighbors d)
+  (active d)
  where
   go p = case pos d p of
-    Active | activeNeighbors d p == 2 || activeNeighbors d p == 3 -> pure p
-    Inactive | activeNeighbors d p == 3 -> pure p
-    _ -> mempty
+    Active | activeNeighbors d p == 2 || activeNeighbors d p == 3 -> True
+    Inactive | activeNeighbors d p == 3 -> True
+    _ -> False
 
 countActive :: (Ord (Pos d), Dimension d) => d -> Int
-countActive d = getSum $ foldDimension (go . pos d) d
- where
-  go Active   = Sum 1
-  go Inactive = Sum 0
+countActive = length . active
 
 -- * two dimensional
 
@@ -112,17 +109,15 @@ instance Show Dimension2 where
 instance Dimension Dimension2 where
   type Pos Dimension2 = Vec2
 
-  mkDimension = D2 . Set.fromList
+  mkDimension = D2
 
   active (D2 s) = s
 
-  neighbors _ (x, y) = do
+  neighbors _ (x, y) = Set.fromList $ do
     xn <- [x, x + 1, x - 1]
     yn <- [y, y + 1, y - 1]
     guard ((xn, yn) /= (x, y))
     pure (xn, yn)
-
-  foldDimension f d = fold . forY d $ \y -> fold . forX d $ \x -> f (x, y)
 
 embed2 :: Dimension2 -> Dimension3
 embed2 (D2 d2) = D3 $ Set.map v2to3 d2 where v2to3 (x, y) = (x, y, 0)
@@ -152,19 +147,16 @@ instance Show Dimension3 where
 instance Dimension Dimension3 where
   type Pos Dimension3 = Vec3
 
-  mkDimension = D3 . Set.fromList
+  mkDimension = D3
 
   active (D3 s) = s
 
-  neighbors _ (x, y, z) = do
+  neighbors _ (x, y, z) = Set.fromList $ do
     xn <- [x, x + 1, x - 1]
     yn <- [y, y + 1, y - 1]
     zn <- [z, z + 1, z - 1]
     guard ((xn, yn, zn) /= (x, y, z))
     pure (xn, yn, zn)
-
-  foldDimension f d = fold . forZ d $ \z ->
-    fold . forY d $ \y -> fold . forX d $ \x -> f (x, y, z)
 
 -- * four dimensional
 
@@ -184,12 +176,11 @@ newtype Dimension4 = D4 (Set Vec4)
 instance Dimension Dimension4 where
   type Pos Dimension4 = Vec4
 
-  -- TODO remove?
-  mkDimension = D4 . Set.fromList
+  mkDimension = D4
 
   active (D4 s) = s
 
-  neighbors _ (x, y, z, w) = do
+  neighbors _ (x, y, z, w) = Set.fromList $ do
     xn <- [x, x + 1, x - 1]
     yn <- [y, y + 1, y - 1]
     zn <- [z, z + 1, z - 1]
@@ -197,17 +188,13 @@ instance Dimension Dimension4 where
     guard ((xn, yn, zn, wn) /= (x, y, z, w))
     pure (xn, yn, zn, wn)
 
-  foldDimension f d = fold . forRangeOn (\(_x, _y, _z, w) -> w) d $ \w ->
-    fold . forZ d $ \z ->
-      fold . forY d $ \y -> fold . forX d $ \x -> f (x, y, z, w)
-
 embed3 :: Dimension3 -> Dimension4
 embed3 (D3 d3) = D4 $ Set.map v3to4 d3 where v3to4 (x, y, z) = (x, y, z, 0)
 
 type Input = Dimension2
 
 parseInput :: String -> Input
-parseInput s = mkDimension $ foldMap pure activeCubes
+parseInput s = mkDimension $ foldMap mempty activeCubes
  where
   activeCubes = concat $ zipWith parseY [0 ..] $ lines s
 
