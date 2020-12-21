@@ -8,21 +8,30 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Data.Void (Void)
+import Control.Monad.Combinators.Expr (Operator(..), makeExprParser)
 
 data Exp = Add Exp Exp
          | Mul Exp Exp
          | Val Natural
          deriving Show
 
-type Input = [Exp]
-
 type Parser = Parsec Void String
+
+sc :: Parser ()
+sc = L.space hspace1 empty empty
+
+natural :: Parser Natural
+natural = L.lexeme sc L.decimal
+
+symbol :: String -> Parser String
+symbol = L.symbol sc
+
+parens :: Parser a -> Parser a
+parens = between (symbol "(") (symbol ")")
+
 
 -- | Simple expression parser which has no operator precedence and all operators
 -- are left-associative.
---
--- NOTE: There is parser-combinators Control.Monad.Combinators.Expr to do this
--- properly
 expP :: Parser Exp
 expP = do
   term <- termP
@@ -44,18 +53,20 @@ expP = do
     r <- Mul a <$> termP
     opP r <|> pure r
 
-  natural = L.lexeme sc L.decimal
+-- | Expression parser with precedences (addition binds higher than multiplication)
+expPrecedenceP :: Parser Exp
+expPrecedenceP = makeExprParser termP ops
+ where
+  valP  = Val <$> natural
 
-  symbol = L.symbol sc
+  termP = parens expPrecedenceP <|> valP
 
-  parens = between (symbol "(") (symbol ")")
+  ops   = [[InfixL $ Add <$ symbol "+"], [InfixL $ Mul <$ symbol "*"]]
 
-  sc     = L.space hspace1 empty empty
+type Input = [String]
 
 parseInput :: String -> Input
-parseInput =
-  map (either (error . errorBundlePretty) id . parse lineP "") . lines
-  where lineP = space *> expP <* eof
+parseInput = lines
 
 eval :: Exp -> Natural
 eval = \case
@@ -63,11 +74,14 @@ eval = \case
   Add x y -> eval x + eval y
   Mul x y -> eval x * eval y
 
+parse' :: Parser a -> String -> a
+parse' p = either (error . errorBundlePretty) id . parse (space *> p <* eof) ""
+
 part1 :: Input -> String
-part1 = show . sum . map eval
+part1 = show . sum . map (eval . parse' expP)
 
 part2 :: Input -> String
-part2 = undefined
+part2 = show . sum . map (eval . parse' expPrecedenceP)
 
 main :: IO ()
 main = do
@@ -75,10 +89,10 @@ main = do
   putStrLn $ part1 test
   putStrLn "Part one (input):"
   putStrLn $ part1 input
-  -- putStrLn "Part two (test):"
-  -- putStrLn $ part2 test
-  -- putStrLn "Part two (input):"
-  -- putStrLn $ part2 input
+  putStrLn "Part two (test):"
+  putStrLn $ part2 test
+  putStrLn "Part two (input):"
+  putStrLn $ part2 input
 
 test :: Input
 test = unsafePerformIO $ parseInput <$> readFile "test"
