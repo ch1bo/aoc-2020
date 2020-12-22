@@ -11,11 +11,15 @@ import qualified Data.Map as Map
 import Data.Maybe (mapMaybe)
 import Data.List (foldl')
 import Data.List (transpose)
+import Data.Map (Map)
+import Debug.Trace (trace)
 
 data Tile = Tile
   { tileId :: Natural
   , tileData :: [String]
-  } deriving Eq
+  }
+instance Eq Tile where
+  a == b = tileId a == tileId b
 
 instance Show Tile where
   show (Tile tid d) = unlines (header : d)
@@ -29,14 +33,14 @@ readTile s = case lines s of
 -- rotate :: Tile -> Tile
 -- rotate (Tile tid d) = flipH . Tile tid $ transpose d
 
--- trans :: Tile -> Tile
--- trans (Tile tid d) = Tile tid $ transpose d
+trans :: Tile -> Tile
+trans (Tile tid d) = Tile tid $ transpose d
 
--- flipH :: Tile -> Tile
--- flipH (Tile tid d) = Tile tid $ map reverse d
+flipH :: Tile -> Tile
+flipH (Tile tid d) = Tile tid $ map reverse d
 
--- flipV :: Tile -> Tile
--- flipV (Tile tid d) = Tile tid $ reverse d
+flipV :: Tile -> Tile
+flipV (Tile tid d) = Tile tid $ reverse d
 
 getT :: Natural -> Input -> Tile
 getT x ts = let (Just t) = find ((== x) . tileId) ts in t
@@ -79,7 +83,75 @@ corners ts = filter ((== 2) . length . matchingBorders) ts
 -- * Find tiles matching the bottom of the first row
 -- * Continue until no tiles left
 arrange :: [Tile] -> [[Tile]]
-arrange ts = [corners ts]
+arrange ts = firstRow : rows firstRow
+ where
+  firstRow = topLeftRotated : row topLeftRotated
+
+  rows [] = []
+  rows (t : _) = case below t of
+    Nothing -> []
+    Just r ->
+      let
+        first = nothingLeft r
+        ts    = first : row first
+      in ts : rows ts
+
+  row t = case rightOf t of
+    Nothing -> []
+    Just r  -> r : row r
+
+  rightOf t = case lookupB BR t of
+    Just (BT, r) -> Just $ trans r
+    Just (BB, r) -> Just $ flipH $ trans r
+    Just (BL, r) -> Just r
+    Just (BR, r) -> Just $ flipH r
+    Nothing -> Nothing
+
+  below t = case lookupB BB t of
+    Just (BT, r) -> Just r
+    Just (BB, r) -> Just $ flipV r
+    Just (BL, r) -> Just $ trans r
+    Just (BR, r) -> Just $ trans $ flipH r
+    Nothing -> Nothing
+
+  nothingLeft t = case lookupB BL t of
+    Just _  -> flipH t
+    Nothing -> t
+
+  nothingAbove t = case lookupB BT t of
+    Just _  -> flipV t
+    Nothing -> t
+
+  topLeft = head $ corners ts -- TODO partial
+
+  topLeftRotated = nothingLeft $ nothingAbove topLeft
+
+  bm t = foldMap borderMap (delete t ts)
+
+  lookupB b t = case b of
+    BT -> lookup' (top t) $ bm t
+    BB -> lookup' (bottom t) $ bm t
+    BL -> lookup' (left t) $ bm t
+    BR -> lookup' (right t) $ bm t
+
+  lookup' s m = case Map.lookup s m of
+    Nothing -> mirrorResult <$> Map.lookup (reverse s) m
+    Just x  -> Just x
+
+  mirrorResult (BT, t) = (BT, flipH t)
+  mirrorResult (BB, t) = (BB, flipH t)
+  mirrorResult (BL, t) = (BL, flipV t)
+  mirrorResult (BR, t) = (BR, flipV t)
+
+borderMap :: Tile -> Map String (Border, Tile)
+borderMap t = Map.fromList
+  [(top t, (BT, t)), (bottom t, (BB, t)), (left t, (BL, t)), (right t, (BR, t))]
+
+data Border = BT
+            | BB
+            | BL
+            | BR
+            deriving (Eq, Ord, Show)
 
 display :: [[Tile]] -> String
 display = unlines . map displayRow
