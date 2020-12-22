@@ -6,9 +6,11 @@ module Main where
 
 import System.IO.Unsafe (unsafePerformIO)
 import Data.IntMap ((!), (!?), IntMap)
-import Data.List.Extra (splitOn)
+import Data.List.Extra (isPrefixOf, splitOn)
 import qualified Data.IntMap as Map
 import Data.Either (rights)
+import Debug.Trace (trace)
+import Data.Tuple.Extra (first)
 
 data Input = Input { rules :: IntMap Rule
                    , messages :: [String]
@@ -21,24 +23,42 @@ data Rule = C Char
 
 -- | A hand-rolled, very specific parser with an opinionated parser state.
 newtype RuleP = RuleP
-  { runRuleParser :: IntMap Rule -> String -> Either String (String, String) }
+  { runRuleParser :: IntMap Rule -> String -> Either (String, String) (String, String) }
 
 ruleP :: Rule -> RuleP
 ruleP r = case r of
-  C c    -> charP c
-  R a    -> indexP a
-  R2 a b -> indexP a `orElse` indexP b
+  C c -> charP c
+  R a -> indexP a
+  R2 a b ->
+    let (prefix, a', b') = commonPrefix a b
+    in
+      combine (indexP prefix) $ if length a' >= length b'
+        then indexP a' `orElse` indexP b'
+        else indexP b' `orElse` indexP a'
+
+commonPrefix :: Eq a => [a] -> [a] -> ([a], [a], [a])
+commonPrefix [] b  = ([], [], b)
+commonPrefix a  [] = ([], a, [])
+commonPrefix (a : as) (b : bs)
+  | a == b    = let (p, x, y) = commonPrefix as bs in (a : p, x, y)
+  | otherwise = ([], a : as, b : bs)
 
 charP :: Char -> RuleP
 charP c = RuleP $ \_rs -> \case
-  (x : xs) | x == c -> pure ([c], xs)
-  _ -> Left $ "no parse: charP " ++ show c
+  (x : xs)
+    | x == c -> pure ([c], xs)
+    | otherwise -> Left
+      ("charP expected " ++ show c ++ " but got " ++ show x, x : xs)
+  [] -> Left ("charP expected " ++ show c ++ " but got nothing", [])
 
 indexP :: [Int] -> RuleP
 indexP [] = RuleP $ \_ s -> pure ([], s)
 indexP (i : is) = RuleP $ \rs s -> case rs !? i of
-  Nothing -> Left $ "no parse: indexP not found: " ++ show i
-  Just r  -> runRuleParser (combine (ruleP r) (indexP is)) rs s
+  Nothing -> Left ("no parse: indexP not found: " ++ show i, s)
+  Just r  -> runRuleParser
+    (combine (label (show i ++ ": " ++ show r) $ ruleP r) (indexP is))
+    rs
+    s
 
 combine :: RuleP -> RuleP -> RuleP
 combine a b = RuleP $ \rs s -> do
@@ -48,8 +68,22 @@ combine a b = RuleP $ \rs s -> do
 
 orElse :: RuleP -> RuleP -> RuleP
 orElse a b = RuleP $ \rs s -> case runRuleParser a rs s of
+  Right ([], rest) -> runRuleParser b rs rest
   Right x -> pure x
   Left  _ -> runRuleParser b rs s
+
+label :: String -> RuleP -> RuleP
+label l p = RuleP $ \rs s ->
+  case trace (l ++ " ? " ++ show s) runRuleParser p rs s of
+    Right (x, rest) ->
+      trace (l ++ " > " ++ show x ++ ", " ++ show rest) pure (x, rest)
+    Left (e, rest) -> trace (l ++ " X " ++ show rest) Left (l ++ e, rest)
+
+doneAfter :: RuleP -> RuleP
+doneAfter p = RuleP $ \rs s -> case runRuleParser p rs s of
+  Right (r, []) -> pure (r, [])
+  Right (_, rest) -> Left ("unconsumed", rest)
+  Left  x -> Left x
 
 parseInput :: String -> Input
 parseInput s =
@@ -68,25 +102,27 @@ readRule s = let [i, rest] = splitOn ": " s in (read i, go rest)
   parse = map read . words
 
 part1 :: Input -> String
-part1 Input {..} = show . length . rights $ map parseOnly messages
- where
-  parse = runRuleParser (ruleP rule0) rules
-  parseOnly s = parse s >>= \case
-    (x, []  ) -> pure x
-    (_, rest) -> Left $ "unconsumed: " ++ rest
-  rule0 = rules ! 0
+part1 Input {..} = show . length . rights $ map parse messages
+  where parse = runRuleParser (doneAfter $ ruleP $ R [0]) rules
 
 part2 :: Input -> String
-part2 = undefined
+part2 i = unlines . map show $ map parse $ messages i
+  where parse = runRuleParser (doneAfter $ ruleP $ R [0]) $ rules' i
+
+rules' :: Input -> IntMap Rule
+rules' =
+  Map.insert 8 (R2 [42] [42, 8])
+    . Map.insert 11 (R2 [42, 31] [42, 11, 31])
+    . rules
 
 main :: IO ()
 main = do
-  putStrLn "Part one (test):"
-  putStrLn $ part1 test
-  putStrLn "Part one (input):"
-  putStrLn $ part1 input
-  -- putStrLn "Part two (test):"
-  -- putStrLn $ part2 test
+  -- putStrLn "Part one (test):"
+  -- putStrLn $ part1 test
+  -- putStrLn "Part one (input):"
+  -- putStrLn $ part1 input
+  putStrLn "Part two (test):"
+  putStrLn $ part2 test
   -- putStrLn "Part two (input):"
   -- putStrLn $ part2 input
 
