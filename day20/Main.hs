@@ -8,11 +8,12 @@ import Numeric.Natural (Natural)
 import Data.List.Extra (replace, intercalate, nub, delete, splitOn)
 import Data.Foldable (find)
 import qualified Data.Map as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isJust, fromMaybe, mapMaybe)
 import Data.List (foldl')
 import Data.List (transpose)
 import Data.Map (Map)
 import Debug.Trace (trace)
+import Data.List (uncons)
 
 data Tile = Tile
   { tileId :: Natural
@@ -30,9 +31,6 @@ readTile s = case lines s of
   [] -> error "readTile empty"
   (x : xs) -> Tile (read $ init $ words x !! 1) xs
 
--- rotate :: Tile -> Tile
--- rotate (Tile tid d) = flipH . Tile tid $ transpose d
-
 trans :: Tile -> Tile
 trans (Tile tid d) = Tile tid $ transpose d
 
@@ -41,9 +39,6 @@ flipH (Tile tid d) = Tile tid $ map reverse d
 
 flipV :: Tile -> Tile
 flipV (Tile tid d) = Tile tid $ reverse d
-
-getT :: Natural -> Input -> Tile
-getT x ts = let (Just t) = find ((== x) . tileId) ts in t
 
 top :: Tile -> String
 top = head . tileData
@@ -57,9 +52,6 @@ left = map head . tileData
 right :: Tile -> String
 right = map last . tileData
 
-borders :: Tile -> [String]
-borders t = [top t, bottom t, left t, right t]
-
 -- | Find corners in a list of tiles. Each tile which has only two matching
 -- borders is a corner.
 corners :: [Tile] -> [Tile]
@@ -67,73 +59,31 @@ corners ts = filter ((== 2) . length . matchingBorders) ts
  where
   -- A border matches if it or it's reverse is equal
   matchingBorders t =
-    filter (\b -> any (matches b) (otherBorders t)) $ borders t
+    filter (\b -> isJust $ lookupBorder (bm t) b t) [BT, BB, BL, BR]
 
-  otherBorders = nub . concatMap borders . otherTiles
+  bm = borderMap ts
 
-  otherTiles t = delete t ts
+data Border = BT | BB | BL | BR deriving (Eq, Ord, Show)
 
-  matches a b = a == b || reverse a == b
+-- | The border map for a given tile contains borders of all other tiles and can
+-- be used to lookup matching borders for the given tile (as it is not
+-- included).
+borderMap :: [Tile] -> Tile -> Map String (Border, Tile)
+borderMap ts t = foldMap borders (delete t ts)
 
--- | Arrange tiles to a picture by
--- * Find a corner
--- * Flip it such that it is the top-left corner
--- * Find matching tiles in row until another corner is found (and modify them
---   if match is reversed)
--- * Find tiles matching the bottom of the first row
--- * Continue until no tiles left
-arrange :: [Tile] -> [[Tile]]
-arrange ts = firstRow : rows firstRow
+borders :: Tile -> Map String (Border, Tile)
+borders t = Map.fromList
+  [(top t, (BT, t)), (bottom t, (BB, t)), (left t, (BL, t)), (right t, (BR, t))]
+
+-- | Direct and reversed lookup of tile border (flips result accordingly).
+lookupBorder
+  :: Map String (Border, Tile) -> Border -> Tile -> Maybe (Border, Tile)
+lookupBorder bm b t = case b of
+  BT -> lookup' (top t) bm
+  BB -> lookup' (bottom t) bm
+  BL -> lookup' (left t) bm
+  BR -> lookup' (right t) bm
  where
-  firstRow = topLeftRotated : row topLeftRotated
-
-  rows [] = []
-  rows (t : _) = case below t of
-    Nothing -> []
-    Just r ->
-      let
-        first = nothingLeft r
-        ts    = first : row first
-      in ts : rows ts
-
-  row t = case rightOf t of
-    Nothing -> []
-    Just r  -> r : row r
-
-  rightOf t = case lookupB BR t of
-    Just (BT, r) -> Just $ trans r
-    Just (BB, r) -> Just $ flipH $ trans r
-    Just (BL, r) -> Just r
-    Just (BR, r) -> Just $ flipH r
-    Nothing -> Nothing
-
-  below t = case lookupB BB t of
-    Just (BT, r) -> Just r
-    Just (BB, r) -> Just $ flipV r
-    Just (BL, r) -> Just $ trans r
-    Just (BR, r) -> Just $ trans $ flipH r
-    Nothing -> Nothing
-
-  nothingLeft t = case lookupB BL t of
-    Just _  -> flipH t
-    Nothing -> t
-
-  nothingAbove t = case lookupB BT t of
-    Just _  -> flipV t
-    Nothing -> t
-
-  topLeft = head $ corners ts -- TODO partial
-
-  topLeftRotated = nothingLeft $ nothingAbove topLeft
-
-  bm t = foldMap borderMap (delete t ts)
-
-  lookupB b t = case b of
-    BT -> lookup' (top t) $ bm t
-    BB -> lookup' (bottom t) $ bm t
-    BL -> lookup' (left t) $ bm t
-    BR -> lookup' (right t) $ bm t
-
   lookup' s m = case Map.lookup s m of
     Nothing -> mirrorResult <$> Map.lookup (reverse s) m
     Just x  -> Just x
@@ -143,15 +93,65 @@ arrange ts = firstRow : rows firstRow
   mirrorResult (BL, t) = (BL, flipV t)
   mirrorResult (BR, t) = (BR, flipV t)
 
-borderMap :: Tile -> Map String (Border, Tile)
-borderMap t = Map.fromList
-  [(top t, (BT, t)), (bottom t, (BB, t)), (left t, (BL, t)), (right t, (BR, t))]
+-- | Arrange tiles to a picture by
+--   - Find a corner
+--   - Flip it such that it is the top-left corner
+--   - Find & rotate tiles matching the right border in row until nothing on the
+--     right
+--   - Find & rotate tiles matching the bottom border of the first row
+--   - Continue until nothing below
+arrange :: [Tile] -> [[Tile]]
+arrange ts = let firstRow = row' topLeftRotated in firstRow : rows firstRow
+ where
+  topLeft = case uncons $ corners ts of
+    Just (tl, _) -> Just tl
+    Nothing -> Nothing
 
-data Border = BT
-            | BB
-            | BL
-            | BR
-            deriving (Eq, Ord, Show)
+  topLeftRotated = alignNothingLeft . alignNothingAbove <$> topLeft
+
+  firstRow tl = tl : row tl
+
+  row' Nothing  = []
+  row' (Just t) = t : row' (rightOf t)
+
+  rows [] = []
+  rows (t : _) = case below t of
+    Nothing -> []
+    Just r ->
+      let
+        first = alignNothingLeft r
+        ts    = first : row first
+      in ts : rows ts
+
+  row t = case rightOf t of
+    Nothing -> []
+    Just r  -> r : row r
+
+  rightOf t = alignRight <$> lookupB BR t
+
+  alignRight = \case
+    (BT, r) -> trans r
+    (BB, r) -> flipH $ trans r
+    (BL, r) -> r
+    (BR, r) -> flipH r
+
+  below t = alignBelow <$> lookupB BB t
+
+  alignBelow = \case
+    (BT, r) -> r
+    (BB, r) -> flipV r
+    (BL, r) -> trans r
+    (BR, r) -> flipV $ trans r
+
+  alignNothingLeft t = case lookupB BL t of
+    Just _  -> flipH t
+    Nothing -> t
+
+  alignNothingAbove t = case lookupB BT t of
+    Just _  -> flipV t
+    Nothing -> t
+
+  lookupB b t = lookupBorder (borderMap ts t) b t
 
 display :: [[Tile]] -> String
 display = unlines . map displayRow
