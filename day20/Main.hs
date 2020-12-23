@@ -14,6 +14,7 @@ import Data.List (transpose)
 import Data.Map (Map)
 import Debug.Trace (trace)
 import Data.List (uncons)
+import Safe (headMay)
 
 data Tile = Tile
   { tileId :: Natural
@@ -25,6 +26,9 @@ instance Eq Tile where
 instance Show Tile where
   show (Tile tid d) = unlines (header : d)
     where header = "Tile " ++ show tid ++ ":"
+
+showTileRaw :: Tile -> String
+showTileRaw = unlines . tail . init . map (tail . init) . tileData
 
 readTile :: String -> Tile
 readTile s = case lines s of
@@ -103,13 +107,9 @@ lookupBorder bm b t = case b of
 arrange :: [Tile] -> [[Tile]]
 arrange ts = let firstRow = row' topLeftRotated in firstRow : rows firstRow
  where
-  topLeft = case uncons $ corners ts of
-    Just (tl, _) -> Just tl
-    Nothing -> Nothing
+  topLeft = headMay $ corners ts
 
   topLeftRotated = alignNothingLeft . alignNothingAbove <$> topLeft
-
-  firstRow tl = tl : row tl
 
   row' Nothing  = []
   row' (Just t) = t : row' (rightOf t)
@@ -154,11 +154,11 @@ arrange ts = let firstRow = row' topLeftRotated in firstRow : rows firstRow
   lookupB b t = lookupBorder (borderMap ts t) b t
 
 display :: [[Tile]] -> String
-display = unlines . map displayRow
+display = concatMap displayRow
  where
-  displayRow ts = merge $ map show ts
+  displayRow ts = merge $ map showTileRaw ts
 
-  merge = unlines . map unwords . transpose . map lines
+  merge = unlines . map concat . transpose . map lines
 
 type Input = [Tile]
 
