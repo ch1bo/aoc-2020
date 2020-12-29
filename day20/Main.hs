@@ -1,24 +1,21 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BangPatterns #-}
 module Main where
 
 import System.IO.Unsafe (unsafePerformIO)
 import Numeric.Natural (Natural)
-import Data.List.Extra (replace, intercalate, nub, delete, splitOn)
-import Data.Foldable (find)
+import Data.List.Extra (sumOn', delete, splitOn)
 import qualified Data.Map as Map
-import Data.Maybe (isJust, fromMaybe, mapMaybe)
-import Data.List (foldl')
+import Data.Maybe (isJust)
 import Data.List (transpose)
 import Data.Map (Map)
-import Debug.Trace (trace)
-import Data.List (uncons)
 import Safe (headMay)
 
 data Tile = Tile
   { tileId :: Natural
-  , tileData :: [String]
+  , tileData :: [[Char]]
   }
 instance Eq Tile where
   a == b = tileId a == tileId b
@@ -153,12 +150,47 @@ arrange ts = let firstRow = row' topLeftRotated in firstRow : rows firstRow
 
   lookupB b t = lookupBorder (borderMap ts t) b t
 
-display :: [[Tile]] -> String
-display = concatMap displayRow
+compose :: [[Tile]] -> [[Char]]
+compose = lines . concatMap displayRow
  where
   displayRow ts = merge $ map showTileRaw ts
 
   merge = unlines . map concat . transpose . map lines
+
+seamonster :: [[Char]]
+seamonster =
+  [ "                  # " --
+  , "#    ##    ##    ###" --
+  , " #  #  #  #  #  #   " --
+  ]
+
+isMonster :: [String] -> [String] -> Bool
+isMonster monster tile = all (uncurry matchPattern) (zip monster tile)
+
+matchPattern :: [Char] -> [Char] -> Bool
+matchPattern ps cs
+  | length ps <= length cs = and $ zipWith match ps cs
+  | otherwise = False
+ where
+  match ' ' _   = True
+  match '#' '#' = True
+  match _   _   = False
+
+extractTiles :: Int -> Int -> [String] -> [[String]]
+extractTiles h w t = do
+  let n = length t
+  i <- [0 .. n - h]
+  j <- [0 .. n - w]
+  return $ take h $ drop i $ map (take w . drop j) t
+
+countMonsters :: [String] -> [String] -> Int
+countMonsters m t =
+  let
+    h = length m
+    w = length $ head m
+    candidates = extractTiles h w t
+    monsters = filter (isMonster m) candidates
+  in length monsters
 
 type Input = [Tile]
 
@@ -169,7 +201,25 @@ part1 :: Input -> String
 part1 = show . product . map tileId . corners
 
 part2 :: Input -> String
-part2 = undefined
+part2 input = show $ count pic - count seamonster * numberMonsters
+ where
+  pic = compose $ arrange input
+
+  variations =
+    [ pic
+    , transpose pic
+    , reverse pic
+    , map reverse pic
+    , rotate pic
+    , rotate $ rotate pic
+    , rotate $ rotate $ rotate pic
+    ]
+
+  rotate = transpose . reverse
+
+  numberMonsters = sum $ map (countMonsters seamonster) variations
+
+  count  = sumOn' (\c -> if c == '#' then 1 else 0) . concat
 
 main :: IO ()
 main = do
@@ -177,10 +227,10 @@ main = do
   putStrLn $ part1 test
   putStrLn "Part one (input):"
   putStrLn $ part1 input
-  -- putStrLn "Part two (test):"
-  -- putStrLn $ part2 test
-  -- putStrLn "Part two (input):"
-  -- putStrLn $ part2 input
+  putStrLn "Part two (test):"
+  putStrLn $ part2 test
+  putStrLn "Part two (input):"
+  putStrLn $ part2 input
 
 test :: Input
 test = unsafePerformIO $ parseInput <$> readFile "test"
