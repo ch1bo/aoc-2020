@@ -1,84 +1,86 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import Control.Applicative (Alternative((<|>)))
 import Data.List (elemIndex)
-import Debug.Trace (trace)
+
 type Input = Cups
 
-data Cups = Cups
-  { cups :: [Int]
-  }
+type Cups = [Int] -- TODO NonEmpty
 
-instance Show Cups where
-  show Cups {..} = concatMap show cups
+showCups :: Cups -> String
+showCups = concatMap show
 
 parseInput :: String -> Input
-parseInput = Cups . map (read . (: []))
+parseInput = map (read . (: []))
 
 currentCup :: Cups -> Int
-currentCup Cups {..} = head cups -- XXX partial
+currentCup = head -- XXX partial
 
 removeClockwise :: Cups -> Int -> ([Int], Cups)
-removeClockwise Cups {..} n =
-  (take n $ tail cups, Cups (head cups : drop (n + 1) cups)) -- XXX DIRTY
+removeClockwise cups n = (take n $ tail cups, head cups : drop (n + 1) cups) -- XXX DIRTY
 
+-- | Find cup with label smaller than current cup
 destinationIndex :: Cups -> Int
-destinationIndex c@Cups {..} = go (currentCup c - 1)
+destinationIndex cs = go (currentCup cs - 1)
  where
   go !label
-    | label < minimum cups = go (maximum cups)
-    | otherwise = case elemIndex label cups of
+    | label < minimum cs = go (maximum cs)
+    | otherwise = case elemIndex label cs of
       Nothing -> go (label - 1)
       Just i  -> i
 
+insertAtIndex :: Cups -> Int -> [Int] -> Cups
+insertAtIndex cups index toInsert = prefix <> toInsert <> suffix
+  where (prefix, suffix) = splitAt (index + 1) cups
+
+newCurrentCup :: Cups -> Cups
+newCurrentCup = shift 1
+
 move :: Cups -> Cups
-move c = let c' = Cups finalCups in trace ("cups: " ++ show c') c'
+move cups = newCurrentCup $ insertAtIndex cupsRemoved destination threeCups
  where
-  (threeCups, cupsRemoved) = removeClockwise c 3
+  (threeCups, cupsRemoved) = removeClockwise cups 3
 
-  destination =
-    trace ("cupsRemoved: " ++ show cupsRemoved) destinationIndex cupsRemoved
-
-  (prefix, suffix) = trace
-    ("destinationIndex: " ++ show destination)
-    splitAt
-    (destination + 1)
-    (cups cupsRemoved)
-
-  finalCups =
-    trace ("pick up: " ++ show threeCups) shift 1
-      $  prefix
-      <> threeCups
-      <> suffix
+  destination = destinationIndex cupsRemoved
 
 shift :: Int -> [a] -> [a]
 shift n xs = drop n xs <> take n xs -- partial
 
-part1 :: Int -> Input -> String
-part1 n input = case elemIndex 1 res of
-  Just n  -> show $ Cups $ tail $ shift n res
+part1 :: Input -> String
+part1 input = case elemIndex 1 res of
+  Just n  -> showCups $ tail $ shift n res
   Nothing -> error "Can't find 1"
  where
-  res   = cups $ moves !! n
+  res   = moves !! 100
   moves = iterate move input
 
 part2 :: Input -> String
-part2 = undefined
+part2 input = show $ head res
+ where
+  res   = moves !! 100 -- TODO 10000000
+
+  moves = iterate move fullInput
+
+  fullInput = take 100000 $ extrapolate input -- TODO 1000000
 
 main :: IO ()
 main = do
-  putStrLn "Part one (test):"
-  putStrLn $ part1 100 test
-  putStrLn "Part one (input):"
-  putStrLn $ part1 100 input
+  -- putStrLn "Part one (test):"
+  -- putStrLn $ part1 test
+  -- putStrLn "Part one (input):"
+  -- putStrLn $ part1 input
   putStrLn "Part two (test):"
   putStrLn $ part2 test
-  putStrLn "Part two (input):"
-  putStrLn $ part2 input
+  -- putStrLn "Part two (input):"
+  -- putStrLn $ part2 input
+
+extrapolate :: [Int] -> [Int]
+extrapolate xs = xs <> [maximum xs + 1 ..]
 
 test :: Input
 test = parseInput "389125467"
