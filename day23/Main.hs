@@ -10,31 +10,21 @@ import Debug.Trace (trace)
 type Input = Cups
 
 data Cups = Cups
-  { currentIndex :: Int
-  , cups :: [Int]
+  { cups :: [Int]
   }
 
 instance Show Cups where
-  show Cups {..} = unwords $ zipWith showCup cups [0 ..]
-   where
-    showCup c i | i == currentIndex = "(" <> show c <> ")"
-    showCup c _ = show c
+  show Cups {..} = concatMap show cups
 
 parseInput :: String -> Input
-parseInput = Cups 0 . map (read . (: []))
+parseInput = Cups . map (read . (: []))
 
 currentCup :: Cups -> Int
-currentCup Cups {..} = cups !! (currentIndex `mod` length cups)
+currentCup Cups {..} = head cups -- XXX partial
 
 removeClockwise :: Cups -> Int -> ([Int], Cups)
 removeClockwise Cups {..} n =
-  let
-    (prefix, suffix) = splitAt (currentIndex + 1 `mod` length cups) cups
-    wrap = max 0 (currentIndex + 1 + n - length cups)
-  in
-    ( take n suffix <> take wrap prefix
-    , Cups (currentIndex - wrap) $ drop wrap prefix <> drop n suffix
-    )
+  (take n $ tail cups, Cups (head cups : drop (n + 1) cups)) -- XXX DIRTY
 
 destinationIndex :: Cups -> Int
 destinationIndex c@Cups {..} = go (currentCup c - 1)
@@ -46,9 +36,7 @@ destinationIndex c@Cups {..} = go (currentCup c - 1)
       Just i  -> i
 
 move :: Cups -> Cups
-move c =
-  let c' = Cups (finalIndex `mod` length finalCups) finalCups
-  in trace ("cups: " ++ show c') c'
+move c = let c' = Cups finalCups in trace ("cups: " ++ show c') c'
  where
   (threeCups, cupsRemoved) = removeClockwise c 3
 
@@ -62,14 +50,21 @@ move c =
     (cups cupsRemoved)
 
   finalCups =
-    trace ("pick up: " ++ show threeCups) prefix <> threeCups <> suffix
+    trace ("pick up: " ++ show threeCups) shift 1
+      $  prefix
+      <> threeCups
+      <> suffix
 
-  finalIndex = if destination < currentIndex c
-    then currentIndex c + 3 + 1
-    else currentIndex c + 1
+shift :: Int -> [a] -> [a]
+shift n xs = drop n xs <> take n xs -- partial
 
-part1 :: Input -> String
-part1 = show . (!! 9) . iterate move
+part1 :: Int -> Input -> String
+part1 n input = case elemIndex 1 res of
+  Just n  -> show $ Cups $ tail $ shift n res
+  Nothing -> error "Can't find 1"
+ where
+  res   = cups $ moves !! n
+  moves = iterate move input
 
 part2 :: Input -> String
 part2 = undefined
@@ -77,9 +72,9 @@ part2 = undefined
 main :: IO ()
 main = do
   putStrLn "Part one (test):"
-  putStrLn $ part1 test
+  putStrLn $ part1 100 test
   putStrLn "Part one (input):"
-  putStrLn $ part1 input
+  putStrLn $ part1 100 input
   putStrLn "Part two (test):"
   putStrLn $ part2 test
   putStrLn "Part two (input):"
