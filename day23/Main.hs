@@ -7,80 +7,117 @@
 module Main where
 
 import Data.List (elemIndex)
+import Data.Vector ((//), (!), (!?), Vector)
+import qualified Data.Vector as V
+import Data.Maybe (fromMaybe)
+import Debug.Trace (trace)
 
 type Input = Cups
 
-type Cups = [Int] -- TODO NonEmpty
+parseInput :: String -> Input
+parseInput = cupsFromList . map (read . (: []))
+
+newtype Cups = Cups
+  { nextIndex :: Vector Int -- ^ Stores label (== index) of next (to the right) cup. Index 0 points to the "current" cup.
+  }
+
+instance Show Cups where
+  show = showCups
+
+cupsFromList :: [Int] -> Cups -- XXX PARTIAL
+cupsFromList [] = error "cupsFromList: empty list"
+cupsFromList l@(c : _) = Cups $ V.fromList (c : indices [1 .. length l]) -- REVIEW hard-coded 1
+ where
+  input = V.fromList l
+
+  indices [] = []
+  indices (i : is) =
+    fromMaybe c (V.elemIndex i input >>= (!?) input . succ) : indices is
+
+cupsToList :: Cups -> [Int]
+cupsToList c = cur : go (rightOf c cur)
+ where
+  cur = currentCup c
+
+  go x
+    | x /= cur  = x : go (rightOf c x)
+    | otherwise = []
+
+debugCups :: Cups -> String
+debugCups Cups {..} = "Cups { nextIndex = " <> show nextIndex <> "}"
 
 showCups :: Cups -> String
-showCups = concatMap show
-
-parseInput :: String -> Input
-parseInput = map (read . (: []))
+showCups = go . cupsToList
+  where go (c : cs) = unwords $ show c <> "!" : map show cs
 
 currentCup :: Cups -> Int
-currentCup = head -- XXX partial
+currentCup Cups {..} = V.head nextIndex
 
-removeClockwise :: Cups -> Int -> ([Int], Cups)
-removeClockwise cups n = (take n $ tail cups, head cups : drop (n + 1) cups) -- XXX DIRTY
+rightOf :: Cups -> Int -> Int
+rightOf Cups {..} i = nextIndex ! i
 
--- | Find cup with label smaller than current cup
-destinationIndex :: Cups -> Int
-destinationIndex cs = go (currentCup cs - 1)
- where
-  go !label
-    | label < minimum cs = go (maximum cs)
-    | otherwise = case elemIndex label cs of
-      Nothing -> go (label - 1)
-      Just i  -> i
+minCup :: Cups -> Int
+minCup _ = 1 -- REVIEW hard-coded 1
 
-insertAtIndex :: Cups -> Int -> [Int] -> Cups
-insertAtIndex cups index toInsert = prefix <> toInsert <> suffix
-  where (prefix, suffix) = splitAt (index + 1) cups
-
-newCurrentCup :: Cups -> Cups
-newCurrentCup = shift 1
+maxCup :: Cups -> Int
+maxCup Cups {..} = V.length nextIndex - 1
 
 move :: Cups -> Cups
-move cups = newCurrentCup $ insertAtIndex cupsRemoved destination threeCups
+move c =
+  Cups $! nextIndex c // [(0, next), (cur, next), (dest, x1), (x3, after)]
  where
-  (threeCups, cupsRemoved) = removeClockwise cups 3
+  cur   = currentCup c
+  x1    = rightOf c cur
+  x2    = rightOf c x1
+  x3    = rightOf c x2
+  next  = rightOf c x3
+  dest  = checkDestination (cur - 1)
+  after = rightOf c dest
 
-  destination = destinationIndex cupsRemoved
+  checkDestination !x
+    | x < minCup c = checkDestination $ maxCup c
+    | x `elem` [x1, x2, x3] = checkDestination (x - 1)
+    | otherwise    = x
 
 shift :: Int -> [a] -> [a]
 shift n xs = drop n xs <> take n xs -- partial
 
 part1 :: Input -> String
 part1 input = case elemIndex 1 res of
-  Just n  -> showCups $ tail $ shift n res
+  Just n  -> concatMap show $ tail $ shift n res
   Nothing -> error "Can't find 1"
  where
-  res   = moves !! 100
+  res   = cupsToList $ moves !! 100
   moves = iterate move input
 
+extrapolate :: Int -> Cups -> Cups
+extrapolate n c = cupsFromList $ cupsToList c <> [maxCup c + 1 .. n]
+
 part2 :: Input -> String
-part2 input = show $ head res
+part2 input = show [x1, x2, x1 * x2]
  where
-  res   = moves !! 100 -- TODO 10000000
+  x1  = rightOf res 1
 
-  moves = iterate move fullInput
+  x2  = rightOf res x1
 
-  fullInput = take 100000 $ extrapolate input -- TODO 1000000
+  res = moveUntil 100000 fullInput -- TODO 10000000
+
+  moveUntil !i !c
+    | i <= 0    = c
+    | otherwise = moveUntil (i - 1) (move c)
+
+  fullInput = extrapolate 10000 input -- TODO 1000000
 
 main :: IO ()
 main = do
-  -- putStrLn "Part one (test):"
-  -- putStrLn $ part1 test
-  -- putStrLn "Part one (input):"
-  -- putStrLn $ part1 input
+  putStrLn "Part one (test):"
+  putStrLn $ part1 test
+  putStrLn "Part one (input):"
+  putStrLn $ part1 input
   putStrLn "Part two (test):"
   putStrLn $ part2 test
   -- putStrLn "Part two (input):"
   -- putStrLn $ part2 input
-
-extrapolate :: [Int] -> [Int]
-extrapolate xs = xs <> [maximum xs + 1 ..]
 
 test :: Input
 test = parseInput "389125467"
