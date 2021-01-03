@@ -9,39 +9,31 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import Data.List (elemIndex)
-import Data.Vector ((//), (!), (!?), Vector)
+import Data.Vector ((!))
 import qualified Data.Vector as V
-import Data.Maybe (fromMaybe)
-import Debug.Trace (trace)
-import Data.Vector.Mutable (IOVector, STVector, MVector)
-import Control.Monad.ST (ST)
-import Control.Monad.Primitive (PrimMonad)
-import System.IO.Unsafe (unsafePerformIO)
+import Data.Vector.Mutable (IOVector)
 import qualified Data.Vector.Mutable as MV
-import Control.Monad ((>=>))
-
-type Input = Cups
-
-parseInput :: String -> Input
-parseInput = unsafePerformIO . cupsFromList . map (read . (: []))
-{-# NOINLINE parseInput #-}
+import Data.Foldable (for_)
 
 newtype Cups = Cups
-  { nextIndex :: IOVector Int -- ^ Stores label (== index) of next (to the right) cup. Index 0 points to the "current" cup.
+  { nextIndex :: IOVector Int -- ^ Stores label (== index) of next (to the
+                              -- right) cup. Index 0 points to the "current"
+                              -- cup.
   }
 
-cupsFromList :: [Int] -> IO Cups -- XXX PARTIAL
+cupsFromList :: [Int] -> IO Cups
 cupsFromList [] = error "cupsFromList: empty list"
-cupsFromList l@(c : _) = do
-  v <- V.thaw $ V.fromList (c : indices [1 .. length l]) -- REVIEW hard-coded 1
+cupsFromList cs = do
+  v <- MV.new (len + 1)
+  MV.write v 0 (input ! 0) -- current cup "pointer"
+  for_ [0 .. len - 1] $ \i -> do
+    let cup  = input ! i
+    let next = input ! ((i + 1) `mod` len) -- TODO use Finite
+    MV.write v cup next
   pure $ Cups v
  where
-  input = V.fromList l
-
-  indices [] = []
-  indices (i : is) =
-    fromMaybe c (V.elemIndex i input >>= (!?) input . succ) : indices is
+  input = V.fromList cs
+  len   = V.length input
 
 cupsToList :: Cups -> Int -> IO [Int]
 cupsToList c start = do
@@ -50,10 +42,6 @@ cupsToList c start = do
   go x
     | x /= start = (x :) <$> (rightOf c x >>= go)
     | otherwise  = pure []
-
-debugCups :: Cups -> IO String
-debugCups c@Cups {..} =
-  unwords <$> mapM (fmap show . MV.read nextIndex) [0 .. maxCup c]
 
 showCups :: Cups -> IO String
 showCups c = do
@@ -98,9 +86,6 @@ move c@Cups {..} = do
     | x `elem` bl  = checkDestination bl (x - 1)
     | otherwise    = x
 
-shift :: Int -> [a] -> [a]
-shift n xs = drop n xs <> take n xs -- partial
-
 iterateNM :: Monad m => (a -> m a) -> Int -> a -> m a
 iterateNM f !i !a
   | i <= 0    = pure a
@@ -108,27 +93,15 @@ iterateNM f !i !a
 
 part1 :: Input -> IO String
 part1 input = do
-  res <- iterateNM move 100 input
+  res <- iterateNM move 100 =<< cupsFromList input
   concatMap show . tail <$> cupsToList res 1
 
--- | Add elements up to n onto the "end" (left of currentCup)
-extrapolate :: Int -> Cups -> IO Cups
-extrapolate n c@(Cups vold) = do
-  vnew <- MV.grow vold addedLen
-  cur  <- currentCup c
-  end  <- leftOf c cur
-  -- add increasing cups where previous cup is always to the left
-  mapM_ (\i -> MV.write vnew i (i + 1)) [maxCup c + 1 .. n]
-  -- point to added cups
-  MV.write vnew end (maxCup c + 1)
-  -- point to start
-  MV.write vnew n cur
-  pure $ Cups vnew
-  where addedLen = n - MV.length vold + 1
+extrapolate :: Int -> [Int] -> [Int]
+extrapolate n xs = xs <> [length xs + 1 .. n]
 
 part2 :: Input -> IO String
 part2 input = do
-  fullInput <- extrapolate 1000000 input
+  fullInput <- cupsFromList $ extrapolate 1000000 input
   res <- iterateNM move 10000000 fullInput
   x1  <- rightOf res 1
   x2  <- rightOf res x1
@@ -144,6 +117,11 @@ main = do
   putStrLn =<< part2 test
   putStrLn "Part two (input):"
   putStrLn =<< part2 input
+
+type Input = [Int]
+
+parseInput :: String -> Input
+parseInput = map (read . (: []))
 
 test :: Input
 test = parseInput "389125467"
