@@ -8,7 +8,10 @@ import Text.ParserCombinators.ReadP (string, choice)
 import Control.Applicative (Alternative(many))
 import Data.Monoid (getSum, Sum(Sum))
 import Data.Tuple.Extra (both)
-import Data.List (sort, group)
+import Data.List (foldl', sort, group)
+import Data.Maybe (mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 data Direction = E | SE | SW | W | NW | NE
   deriving (Eq, Show)
@@ -32,24 +35,61 @@ type Input = [Path]
 parseInput :: String -> Input
 parseInput = map read . lines
 
-move :: Direction -> (Int, Int)
-move = \case
-  E  -> (0, 2)
-  SE -> (1, 1)
-  SW -> (1, -1)
-  W  -> (0, -2)
-  NW -> (-1, -1)
-  NE -> (-1, 1)
+move :: (Int, Int) -> Direction -> (Int, Int)
+move (y, x) = \case
+  E  -> (y, x + 2)
+  SE -> (y + 1, x + 1)
+  SW -> (y + 1, x - 1)
+  W  -> (y, x - 2)
+  NW -> (y - 1, x - 1)
+  NE -> (y - 1, x + 1)
+
+directions :: [Direction]
+directions = [E, SE, SW, W, NW, NE]
 
 coords :: Path -> (Int, Int)
-coords = both getSum . foldMap (both Sum . move)
+coords = foldl' move (0, 0)
+
+blackTiles :: Input -> [(Int, Int)]
+blackTiles = mapMaybe go . group . sort . map coords
+ where
+  go l@(x : _) | odd (length l) = Just x
+  go _ = Nothing
 
 part1 :: Input -> String
 part1 = show . length . blackTiles
-  where blackTiles = filter odd . map length . group . sort . map coords
+
+neighbors :: (Int, Int) -> [(Int, Int)]
+neighbors p = map (move p) directions
+
+data Color = Black | White
+
+nextDay :: Set (Int, Int) -> Set (Int, Int)
+nextDay blacks = Set.filter
+  (\x -> willBeBlack (color x) (blackNeighbors x))
+  relevantTiles
+ where
+  relevantTiles = blacks <> foldMap (Set.fromList . neighbors) blacks
+
+  color x = if x `elem` blacks then Black else White
+
+  blackNeighbors =
+    Set.size . Set.intersection blacks . Set.fromList . neighbors
+
+  willBeBlack Black x | x == 0 || x > 2 = False
+  willBeBlack Black _ = True
+  willBeBlack White 2 = True
+  willBeBlack White _ = False
 
 part2 :: Input -> String
-part2 = undefined
+part2 =
+  unlines
+    . map (\(i, n) -> "Day " <> show i <> ": " <> show (Set.size n))
+    . take 101
+    . zip [0 ..]
+    . iterate nextDay
+    . Set.fromList
+    . blackTiles
 
 main :: IO ()
 main = do
